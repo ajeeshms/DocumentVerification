@@ -1,0 +1,9 @@
+﻿@{
+    ViewData["Title"] = "Upload Document";
+}
+
+<h2>Upload Document</h2>
+<form method="post" enctype="multipart/form-data" action="/api/DocumentApi/analyze">
+    <input type="file" name="file" />
+    <button type="submit">Upload</button>
+</form>
