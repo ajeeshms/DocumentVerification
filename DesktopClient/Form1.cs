@@ -58,7 +58,7 @@ namespace DesktopClient {
                 timer1.Stop();
                 lblTimer.Text = $"Completed in {_stopwatch.Elapsed.TotalSeconds:F1} sec";
 
-                txtResponse.Text = result;
+                txtResponse.Text = result.Replace("\n", Environment.NewLine);
             }
             catch (Exception ex) {
                 _stopwatch?.Stop();

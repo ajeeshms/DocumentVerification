@@ -56,7 +56,7 @@
             this.Controls.Add(this.lblTimer);
             this.Controls.Add(this.btnUpload);
             this.Name = "Form1";
-            this.Text = "Document Analyzer Client";
+            this.Text = "SecurePrint - Client";
             this.ResumeLayout(false);
             this.PerformLayout();
         }

@@ -3,6 +3,13 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 
+// For DOCX
+using DocumentFormat.OpenXml.Packaging;
+
+// For PDF (using PdfPig)
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+
 [ApiController]
 [Route("api/[controller]")]
 public class DocumentApiController : ControllerBase {
@@ -17,9 +24,29 @@ public class DocumentApiController : ControllerBase {
         if (file == null || file.Length == 0)
             return BadRequest("No file uploaded");
 
-        string text;
-        using (var reader = new StreamReader(file.OpenReadStream())) {
+        string text = string.Empty;
+        var ext = Path.GetExtension(file.FileName).ToLower();
+
+        if (ext == ".txt") {
+            using var reader = new StreamReader(file.OpenReadStream());
             text = await reader.ReadToEndAsync();
+        }
+
+        else if (ext == ".pdf") {
+            using var pdf = PdfDocument.Open(file.OpenReadStream());
+            var sb = new StringBuilder();
+            foreach (var page in pdf.GetPages()) {
+                sb.AppendLine(page.Text);
+            }
+            text = sb.ToString();
+        }
+        else if (ext == ".docx") {
+            using var doc = WordprocessingDocument.Open(file.OpenReadStream(), false);
+            var body = doc.MainDocumentPart.Document.Body;
+            text = body.InnerText;
+        }
+        else {
+            return BadRequest("Unsupported file type. Only TXT, PDF, DOCX allowed.");
         }
 
         var chunks = ChunkText(text);
@@ -27,42 +54,57 @@ public class DocumentApiController : ControllerBase {
 
         foreach (var chunk in chunks) {
             var requestBody = new {
-                model = "qwen2.5-7b-instruct",
+                //model = "qwen2.5-7b-instruct",
+                model = "qwen/qwen3-4b-2507",
                 temperature = 0,
-                messages = new[]
-                {
-                    new { role = "system", content = "You are an AI that detects confidential information in documents. If you find any, reply very briefly with the type of confidential data. If none, reply only 'SAFE'." },
-                    new { role = "user", content = chunk }
-                }
+                messages = new[] {
+        new {
+            role = "system",
+            content =
+@"You are an AI that detects sensitive and confidential information in documents.
+
+Confidential data includes only:
+- Personally identifiable information (PII): names, addresses, phone numbers, government IDs
+- Financial information: credit card numbers, bank details, tax IDs
+- Login credentials: usernames, passwords, API keys, tokens
+- Proprietary or classified company data
+
+Ignore and mark as SAFE if:
+- Text is Lorem Ipsum, filler, or placeholder text
+- Strings only look like emails but do not contain real domains (e.g. 'dolor.sit@amet..')
+- Random Latin text, fake names, or nonsense words
+
+If you find confidential data, reply briefly with the type (e.g., 'Email address', 'Credit card number').  
+If no confidential data is found, reply only with 'SAFE'."
+        },
+        new { role = "user", content = chunk }
+    }
             };
+
 
 
             var response = await _httpClient.PostAsJsonAsync("v1/chat/completions", requestBody);
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();
-
-            // Deserialize the response
-            using var doc = JsonDocument.Parse(json);
-            var reply = doc.RootElement
-                           .GetProperty("choices")[0]
-                           .GetProperty("message")
-                           .GetProperty("content")
-                           .GetString();
+            using var docJson = JsonDocument.Parse(json);
+            var reply = docJson.RootElement
+                               .GetProperty("choices")[0]
+                               .GetProperty("message")
+                               .GetProperty("content")
+                               .GetString();
 
             results.Add(reply);
 
-            // Stop further processing if confidential data is detected
             if (!reply.Equals("SAFE", StringComparison.OrdinalIgnoreCase)) {
                 results.Add("Confidential data detected: " + reply);
                 break;
             }
-
         }
 
-        var finalSummary = string.Join("\n", results);
-        return Ok(finalSummary);
+        return Ok(string.Join("\n", results));
     }
+
 
 
     private static List<string> ChunkText(string text, int maxChunkSize = 2000) {
